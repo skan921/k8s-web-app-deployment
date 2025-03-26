@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-web-app
+  labels:
+    app: my-web-app
+spec:
+  replicas: 4  # Количество реплик для обработки пиковой нагрузки
+  selector:
+    matchLabels:
+      app: my-web-app
+  template:
+    metadata:
+      labels:
+        app: my-web-app
+    spec:
+      containers:
+      - name: my-web-app-container
+        image: my-web-app:latest  # Замените на ваш образ
+        resources:
+          requests:
+            memory: "128Mi"  # Минимальное количество памяти
+            cpu: "500m"  # Запрос на CPU, чтобы покрыть потребности во время инициализации
+          limits:
+            memory: "256Mi"  # Ограничение по памяти
+            cpu: "1"  # Ограничение по CPU на случай пиковых нагрузок
+        livenessProbe:  # Проверка на живучесть
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30  # Задержка перед первой проверкой
+          periodSeconds: 10  # Периодичность проверок
+        readinessProbe:  # Проверка на готовность
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      affinity:  # Настройки для распределения подов по зонам
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - my-web-app
+            topologyKey: "kubernetes.io/hostname"  # Распределение по нодам
+
+---
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: my-web-app-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-web-app
+  minReplicas: 2  # Минимальное количество реплик
+  maxReplicas: 10  # Максимальное количество реплик для масштабирования
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50  # Целевое использование CPU для масштабирования
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-web-app-service
+spec:
+  selector:
+    app: my-web-app
+  ports:
+  - port: 80  # Порт, на который будет направлен трафик
+    targetPort: 8080  # Порт контейнера
+  type: LoadBalancer  # Тип сервиса для внешнего доступа
